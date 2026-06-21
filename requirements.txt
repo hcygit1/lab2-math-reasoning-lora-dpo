@@ -1,6 +1,6 @@
 torch
 numpy
-transformers
+transformers<5
 datasets
 accelerate
 sentencepiece
