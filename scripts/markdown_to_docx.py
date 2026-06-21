@@ -204,12 +204,16 @@ def markdown_to_docx(markdown: str, out_path: Path) -> None:
             run = paragraph.add_run(stripped[2:])
             run.bold = True
             run.font.size = Pt(16)
-            run.font.color.rgb = RGBColor.from_string("0F172A")
+            run.font.color.rgb = RGBColor.from_string("000000")
             set_run_font(run, east_asia="黑体")
         elif stripped.startswith("## "):
-            doc.add_heading(stripped[3:], level=1)
+            paragraph = doc.add_heading(stripped[3:], level=1)
+            for run in paragraph.runs:
+                run.font.color.rgb = RGBColor.from_string("000000")
         elif stripped.startswith("### "):
-            doc.add_heading(stripped[4:], level=2)
+            paragraph = doc.add_heading(stripped[4:], level=2)
+            for run in paragraph.runs:
+                run.font.color.rgb = RGBColor.from_string("000000")
         elif stripped.startswith("- "):
             paragraph = doc.add_paragraph(style="List Bullet")
             add_inline_markdown(paragraph, stripped[2:])
