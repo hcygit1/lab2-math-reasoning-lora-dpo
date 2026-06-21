@@ -53,22 +53,24 @@ def set_doc_defaults(doc: Document) -> None:
     normal = styles["Normal"]
     normal.font.name = "Calibri"
     normal._element.rPr.rFonts.set(qn("w:eastAsia"), "宋体")
-    normal.font.size = Pt(10.5)
-    normal.paragraph_format.space_after = Pt(5)
-    normal.paragraph_format.line_spacing = 1.08
+    normal.font.size = Pt(12)
+    normal.paragraph_format.space_after = Pt(0)
+    normal.paragraph_format.line_spacing = 1.25
 
     for name, size, color, before, after in [
-        ("Heading 1", 15, "2E74B5", 12, 6),
-        ("Heading 2", 12.5, "2E74B5", 8, 4),
-        ("Heading 3", 11, "1F4D78", 6, 3),
+        ("Heading 1", 15, "000000", 12, 12),
+        ("Heading 2", 14, "000000", 6, 6),
+        ("Heading 3", 12, "000000", 0, 0),
     ]:
         style = styles[name]
         style.font.name = "Calibri"
         style._element.rPr.rFonts.set(qn("w:eastAsia"), "黑体")
         style.font.size = Pt(size)
+        style.font.bold = True
         style.font.color.rgb = RGBColor.from_string(color)
         style.paragraph_format.space_before = Pt(before)
         style.paragraph_format.space_after = Pt(after)
+        style.paragraph_format.line_spacing = 1.0 if name in ("Heading 1", "Heading 2") else 1.25
 
 
 def add_inline_markdown(paragraph, text: str) -> None:
@@ -133,7 +135,7 @@ def add_table(doc: Document, rows: list[list[str]]) -> None:
             paragraph = cell.paragraphs[0]
             add_inline_markdown(paragraph, value)
             for run in paragraph.runs:
-                run.font.size = Pt(8.5)
+                run.font.size = Pt(10.5)
                 set_run_font(run)
                 if row_idx == 0:
                     run.bold = True
@@ -201,7 +203,7 @@ def markdown_to_docx(markdown: str, out_path: Path) -> None:
             paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
             run = paragraph.add_run(stripped[2:])
             run.bold = True
-            run.font.size = Pt(18)
+            run.font.size = Pt(16)
             run.font.color.rgb = RGBColor.from_string("0F172A")
             set_run_font(run, east_asia="黑体")
         elif stripped.startswith("## "):
