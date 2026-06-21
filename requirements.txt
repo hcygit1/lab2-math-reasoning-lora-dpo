@@ -3,6 +3,7 @@ numpy
 transformers<5
 datasets
 accelerate
+fsspec<=2026.4.0
 sentencepiece
 safetensors
 tqdm
