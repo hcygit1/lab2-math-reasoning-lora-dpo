@@ -124,31 +124,84 @@ def draw_line_chart(
 
 
 def draw_pipeline_diagram(output_path: Path) -> None:
-    image = Image.new("RGB", (1400, 520), "white")
+    image = Image.new("RGB", (1400, 900), "white")
     draw = ImageDraw.Draw(image)
-    title_font = chart_font(34)
-    box_font = chart_font(22)
-    note_font = chart_font(18)
-    boxes = [
-        ("Qwen2.5-0.5B\n基础模型", 60, 180, 250, 310, (236, 244, 255)),
-        ("手写 LoRA\n注入 q_proj/v_proj", 340, 180, 585, 310, (239, 252, 246)),
-        ("SFT 训练\n300 条 chosen", 680, 180, 890, 310, (255, 248, 230)),
-        ("DPO 训练\n100 对偏好样本", 980, 180, 1210, 310, (255, 238, 238)),
-        ("验证\nloss 与输出对比", 1280, 180, 1390, 310, (241, 245, 249)),
+    title_font = chart_font(38)
+    stage_font = chart_font(25)
+    body_font = chart_font(22)
+    note_font = chart_font(19)
+
+    draw.text((70, 48), "高效大模型后训练流程架构", fill=(20, 32, 46), font=title_font)
+    draw.text(
+        (70, 96),
+        "从基础模型出发，依次完成手写 LoRA SFT、完整 DPO 训练与机制验证。",
+        fill=(70, 85, 100),
+        font=note_font,
+    )
+
+    stages = [
+        (
+            "1. 基础模型",
+            "Qwen2.5-0.5B-Instruct",
+            "加载 tokenizer 与 causal LM；作为 SFT 初始模型，也作为 DPO reference 的来源。",
+            (236, 244, 255),
+        ),
+        (
+            "2. 手写 LoRA",
+            "冻结 base，只训练 A/B 低秩矩阵",
+            "在注意力模块 q_proj 与 v_proj 上注入 LoRA：Wx + scale * B(Ax)。",
+            (239, 252, 246),
+        ),
+        (
+            "3. SFT 阶段",
+            "Math-Step-DPO-10K：prompt -> chosen",
+            "使用 300 条 chosen 回答训练 LoRA adapter，得到 outputs/sft_lora。",
+            (255, 248, 230),
+        ),
+        (
+            "4. DPO 阶段",
+            "policy = SFT LoRA，reference = frozen base",
+            "使用 100 对 chosen/rejected 偏好样本，手写 DPO loss 更新 policy LoRA。",
+            (255, 238, 238),
+        ),
+        (
+            "5. 验证与产物",
+            "loss 曲线、DPO 交换验证、输出对比",
+            "normal loss < swapped loss；生成 loss_log、dpo_loss_log 与 base_vs_lora。",
+            (241, 245, 249),
+        ),
     ]
-    draw.text((60, 58), "高效大模型后训练实验流程", fill=(20, 32, 46), font=title_font)
-    for text, x1, y1, x2, y2, color in boxes:
-        draw.rounded_rectangle((x1, y1, x2, y2), radius=20, fill=color, outline=(70, 85, 100), width=3)
-        for i, line in enumerate(text.split("\n")):
-            draw.text((x1 + 18, y1 + 32 + i * 34), line, fill=(20, 32, 46), font=box_font)
-    for idx in range(len(boxes) - 1):
-        _, _, _, x2, _, _ = boxes[idx]
-        _, nx1, _, _, _, _ = boxes[idx + 1]
-        y = 245
-        draw.line((x2 + 15, y, nx1 - 15, y), fill=(45, 55, 72), width=4)
-        draw.polygon([(nx1 - 15, y), (nx1 - 35, y - 12), (nx1 - 35, y + 12)], fill=(45, 55, 72))
-    draw.text((340, 350), "手写 A/B 低秩矩阵，冻结基础模型参数", fill=(70, 85, 100), font=note_font)
-    draw.text((980, 350), "手写 DPO loss，验证 normal loss < swapped loss", fill=(70, 85, 100), font=note_font)
+
+    x1, x2 = 90, 1310
+    y = 150
+    box_h = 118
+    gap = 26
+    for index, (stage, headline, detail, color) in enumerate(stages):
+        y1 = y + index * (box_h + gap)
+        y2 = y1 + box_h
+        draw.rounded_rectangle((x1, y1, x2, y2), radius=22, fill=color, outline=(71, 85, 105), width=3)
+        draw.rounded_rectangle((x1, y1, x1 + 245, y2), radius=22, fill=(30, 41, 59), outline=(30, 41, 59), width=0)
+        draw.rectangle((x1 + 220, y1, x1 + 245, y2), fill=(30, 41, 59))
+        draw.text((x1 + 28, y1 + 40), stage, fill="white", font=stage_font)
+        draw.text((x1 + 285, y1 + 25), headline, fill=(20, 32, 46), font=stage_font)
+        draw.text((x1 + 285, y1 + 68), detail, fill=(55, 65, 81), font=body_font)
+
+        if index < len(stages) - 1:
+            cx = (x1 + x2) // 2
+            arrow_top = y2 + 6
+            arrow_bottom = y2 + gap - 6
+            draw.line((cx, arrow_top, cx, arrow_bottom), fill=(45, 55, 72), width=4)
+            draw.polygon(
+                [(cx, arrow_bottom + 8), (cx - 12, arrow_bottom - 8), (cx + 12, arrow_bottom - 8)],
+                fill=(45, 55, 72),
+            )
+
+    draw.text(
+        (90, 850),
+        "边界说明：LoRA adapter 与 DPO loss 为手写核心逻辑；transformers 只负责模型加载与前向计算。",
+        fill=(70, 85, 100),
+        font=note_font,
+    )
     image.save(output_path)
 
 
