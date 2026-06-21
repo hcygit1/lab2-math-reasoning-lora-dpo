@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import argparse
 import csv
+import os
 from pathlib import Path
+
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 
 import torch
 from torch.optim import AdamW

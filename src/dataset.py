@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Any
+
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 
 from datasets import load_dataset
 

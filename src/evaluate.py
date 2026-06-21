@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
+
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
