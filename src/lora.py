@@ -29,8 +29,20 @@ class LoRALinear(nn.Module):
         self.alpha = alpha
         self.scale = alpha / rank
         self.dropout = nn.Dropout(dropout)
-        self.lora_a = nn.Linear(base.in_features, rank, bias=False)
-        self.lora_b = nn.Linear(rank, base.out_features, bias=False)
+        self.lora_a = nn.Linear(
+            base.in_features,
+            rank,
+            bias=False,
+            device=base.weight.device,
+            dtype=base.weight.dtype,
+        )
+        self.lora_b = nn.Linear(
+            rank,
+            base.out_features,
+            bias=False,
+            device=base.weight.device,
+            dtype=base.weight.dtype,
+        )
 
         for parameter in self.base.parameters():
             parameter.requires_grad = False
