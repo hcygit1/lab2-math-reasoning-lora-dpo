@@ -108,6 +108,8 @@ outputs/loss_log.csv
 
 ## 验证 DPO Loss
 
+先用 SFT 后的 LoRA adapter 做 DPO loss 方向验证：
+
 ```bash
 python -m src.verify_dpo \
   --adapter_dir outputs/sft_lora \
@@ -129,12 +131,51 @@ outputs/dpo_check.txt
 - 交换 chosen/rejected 后 loss 发生变化；
 - DPO loss 公式由代码手写实现。
 
+## 完整 DPO 小规模训练
+
+GPU 用户可以继续跑 100 对 chosen/rejected 做完整 DPO 训练：
+
+```bash
+python -m src.train_dpo \
+  --model Qwen/Qwen2.5-0.5B-Instruct \
+  --init_adapter_dir outputs/sft_lora \
+  --output_dir outputs/dpo_lora \
+  --data_file data/math_step_dpo_train.parquet \
+  --samples 100 \
+  --max_length 512 \
+  --batch_size 1 \
+  --gradient_accumulation_steps 4 \
+  --epochs 1 \
+  --rank 8 \
+  --alpha 16 \
+  --lr 1e-5 \
+  --beta 0.1
+```
+
+训练后会生成：
+
+```text
+outputs/dpo_lora/
+outputs/dpo_loss_log.csv
+```
+
+再用 DPO 后的 adapter 验证：
+
+```bash
+python -m src.verify_dpo \
+  --adapter_dir outputs/dpo_lora \
+  --reference_model Qwen/Qwen2.5-0.5B-Instruct \
+  --data_file data/math_step_dpo_train.parquet \
+  --samples 16 \
+  --max_length 512
+```
+
 ## 输出对比
 
 ```bash
 python -m src.evaluate \
   --base_model Qwen/Qwen2.5-0.5B-Instruct \
-  --adapter_dir outputs/sft_lora
+  --adapter_dir outputs/dpo_lora
 ```
 
 输出文件：
@@ -157,6 +198,7 @@ git push
 
 ```text
 outputs/loss_log.csv
+outputs/dpo_loss_log.csv
 outputs/dpo_check.txt
 outputs/base_vs_lora.md
 ```
@@ -165,6 +207,7 @@ outputs/base_vs_lora.md
 
 ```text
 outputs/sft_lora/
+outputs/dpo_lora/
 checkpoints/
 models/
 *.pt
