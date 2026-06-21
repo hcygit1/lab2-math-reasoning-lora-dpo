@@ -21,6 +21,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--samples", type=int, default=16)
     parser.add_argument("--max_length", type=int, default=512)
     parser.add_argument("--beta", type=float, default=0.1)
+    parser.add_argument("--data_file", default=None, help="Optional local Math-Step-DPO parquet file.")
     return parser.parse_args()
 
 
@@ -53,7 +54,7 @@ def main() -> None:
     policy = policy.to(device).eval()
     reference = AutoModelForCausalLM.from_pretrained(args.reference_model, trust_remote_code=True).to(device).eval()
 
-    examples = load_math_step_dpo(sample_count=args.samples)
+    examples = load_math_step_dpo(sample_count=args.samples, data_file=args.data_file)
     chosen_texts = [f"Question:\n{example.prompt}\n\nAnswer:\n{example.chosen}" for example in examples]
     rejected_texts = [f"Question:\n{example.prompt}\n\nAnswer:\n{example.rejected}" for example in examples]
 

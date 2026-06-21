@@ -33,6 +33,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--rank", type=int, default=8)
     parser.add_argument("--alpha", type=float, default=16.0)
     parser.add_argument("--dropout", type=float, default=0.05)
+    parser.add_argument("--data_file", default=None, help="Optional local Math-Step-DPO parquet file.")
     parser.add_argument("--output_dir", default="outputs/sft_lora")
     return parser.parse_args()
 
@@ -56,7 +57,7 @@ def main() -> None:
     print(f"Injected LoRA into: {replaced[:8]}{'...' if len(replaced) > 8 else ''}")
     print(f"Trainable parameters: {trainable}/{total} ({trainable / total:.2%})")
 
-    examples = load_math_step_dpo(sample_count=args.samples)
+    examples = load_math_step_dpo(sample_count=args.samples, data_file=args.data_file)
     texts = [build_sft_text(example.prompt, example.chosen) for example in examples]
     optimizer = AdamW((p for p in model.parameters() if p.requires_grad), lr=args.lr)
     model.train()

@@ -61,11 +61,22 @@ pytest tests
 
 ## 训练 LoRA SFT
 
+如果 Hugging Face 数据集自动下载不稳定，可以先断点续传数据文件：
+
+```bash
+source /etc/network_turbo
+mkdir -p data
+curl -L -C - --retry 20 --retry-delay 3 \
+  -o data/math_step_dpo_train.parquet \
+  https://huggingface.co/datasets/xinlai/Math-Step-DPO-10K/resolve/main/data/train-00000-of-00001.parquet
+```
+
 第一次建议先跑小样本 smoke test：
 
 ```bash
 python -m src.train_sft \
   --model Qwen/Qwen2.5-0.5B-Instruct \
+  --data_file data/math_step_dpo_train.parquet \
   --samples 20 \
   --max_length 256 \
   --batch_size 1 \
@@ -78,6 +89,7 @@ python -m src.train_sft \
 ```bash
 python -m src.train_sft \
   --model Qwen/Qwen2.5-0.5B-Instruct \
+  --data_file data/math_step_dpo_train.parquet \
   --samples 300 \
   --max_length 512 \
   --batch_size 1 \
@@ -100,6 +112,7 @@ outputs/loss_log.csv
 python -m src.verify_dpo \
   --adapter_dir outputs/sft_lora \
   --reference_model Qwen/Qwen2.5-0.5B-Instruct \
+  --data_file data/math_step_dpo_train.parquet \
   --samples 16 \
   --max_length 512
 ```
