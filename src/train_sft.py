@@ -1,0 +1,105 @@
+from __future__ import annotations
+
+import argparse
+import csv
+from pathlib import Path
+
+import torch
+from torch.optim import AdamW
+from tqdm import tqdm
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+from src.dataset import load_math_step_dpo
+from src.inject_lora import inject_lora
+from src.lora import count_trainable_parameters, mark_only_lora_as_trainable, save_lora_adapters
+
+
+def build_sft_text(prompt: str, answer: str) -> str:
+    return f"Question:\n{prompt}\n\nAnswer:\n{answer}"
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run small-sample LoRA SFT on math preference data.")
+    parser.add_argument("--model", default="Qwen/Qwen2.5-0.5B-Instruct")
+    parser.add_argument("--samples", type=int, default=300)
+    parser.add_argument("--max_length", type=int, default=512)
+    parser.add_argument("--batch_size", type=int, default=1)
+    parser.add_argument("--gradient_accumulation_steps", type=int, default=8)
+    parser.add_argument("--epochs", type=int, default=1)
+    parser.add_argument("--lr", type=float, default=2e-4)
+    parser.add_argument("--rank", type=int, default=8)
+    parser.add_argument("--alpha", type=float, default=16.0)
+    parser.add_argument("--dropout", type=float, default=0.05)
+    parser.add_argument("--output_dir", default="outputs/sft_lora")
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    Path("outputs").mkdir(exist_ok=True)
+
+    tokenizer = AutoTokenizer.from_pretrained(args.model, trust_remote_code=True)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    model = AutoModelForCausalLM.from_pretrained(args.model, trust_remote_code=True).to(device)
+    target_modules = ("q_proj", "v_proj")
+    replaced = inject_lora(model, target_modules=target_modules, rank=args.rank, alpha=args.alpha, dropout=args.dropout)
+    mark_only_lora_as_trainable(model)
+    trainable, total = count_trainable_parameters(model)
+    print(f"Injected LoRA into: {replaced[:8]}{'...' if len(replaced) > 8 else ''}")
+    print(f"Trainable parameters: {trainable}/{total} ({trainable / total:.2%})")
+
+    examples = load_math_step_dpo(sample_count=args.samples)
+    texts = [build_sft_text(example.prompt, example.chosen) for example in examples]
+    optimizer = AdamW((p for p in model.parameters() if p.requires_grad), lr=args.lr)
+    model.train()
+
+    loss_rows: list[dict[str, float | int]] = []
+    step = 0
+    optimizer.zero_grad(set_to_none=True)
+    for epoch in range(args.epochs):
+        progress = tqdm(range(0, len(texts), args.batch_size), desc=f"epoch {epoch + 1}")
+        for start in progress:
+            batch_texts = texts[start : start + args.batch_size]
+            batch = tokenizer(
+                batch_texts,
+                return_tensors="pt",
+                padding=True,
+                truncation=True,
+                max_length=args.max_length,
+            ).to(device)
+            labels = batch["input_ids"].clone()
+            labels[batch["attention_mask"].eq(0)] = -100
+            loss = model(**batch, labels=labels).loss / args.gradient_accumulation_steps
+            loss.backward()
+
+            if (step + 1) % args.gradient_accumulation_steps == 0:
+                optimizer.step()
+                optimizer.zero_grad(set_to_none=True)
+
+            raw_loss = float(loss.detach().cpu()) * args.gradient_accumulation_steps
+            progress.set_postfix(loss=f"{raw_loss:.4f}")
+            loss_rows.append({"step": step, "loss": raw_loss})
+            step += 1
+
+    save_lora_adapters(
+        model,
+        output_dir,
+        target_modules=target_modules,
+        rank=args.rank,
+        alpha=args.alpha,
+        dropout=args.dropout,
+    )
+    tokenizer.save_pretrained(output_dir)
+    with Path("outputs/loss_log.csv").open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["step", "loss"])
+        writer.writeheader()
+        writer.writerows(loss_rows)
+
+
+if __name__ == "__main__":
+    main()
