@@ -24,20 +24,20 @@ from src.lora import (
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run small-scale DPO training with custom LoRA adapters.")
+    parser = argparse.ArgumentParser(description="Run DPO training with custom LoRA adapters.")
     parser.add_argument("--model", default="Qwen/Qwen2.5-0.5B-Instruct")
     parser.add_argument("--init_adapter_dir", default="outputs/sft_lora")
     parser.add_argument("--output_dir", default="outputs/dpo_lora")
     parser.add_argument("--data_file", default=None, help="Optional local Math-Step-DPO parquet file.")
-    parser.add_argument("--samples", type=int, default=100)
-    parser.add_argument("--max_length", type=int, default=512)
-    parser.add_argument("--batch_size", type=int, default=1)
-    parser.add_argument("--gradient_accumulation_steps", type=int, default=4)
-    parser.add_argument("--epochs", type=int, default=1)
+    parser.add_argument("--samples", type=int, default=0, help="Number of preference pairs to use; 0 means full dataset.")
+    parser.add_argument("--max_length", type=int, default=1024)
+    parser.add_argument("--batch_size", type=int, default=8)
+    parser.add_argument("--gradient_accumulation_steps", type=int, default=1)
+    parser.add_argument("--epochs", type=int, default=2)
     parser.add_argument("--lr", type=float, default=1e-5)
     parser.add_argument("--beta", type=float, default=0.1)
-    parser.add_argument("--rank", type=int, default=8)
-    parser.add_argument("--alpha", type=float, default=16.0)
+    parser.add_argument("--rank", type=int, default=32)
+    parser.add_argument("--alpha", type=float, default=64.0)
     parser.add_argument("--dropout", type=float, default=0.05)
     return parser.parse_args()
 

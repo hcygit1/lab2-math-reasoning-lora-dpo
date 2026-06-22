@@ -71,30 +71,51 @@ curl -L -C - --retry 20 --retry-delay 3 \
   https://huggingface.co/datasets/xinlai/Math-Step-DPO-10K/resolve/main/data/train-00000-of-00001.parquet
 ```
 
-第一次建议先跑小样本 smoke test：
+### RTX 4090 / 24GB 推荐配置
+
+可以直接运行一键脚本：
 
 ```bash
-python -m src.train_sft \
-  --model Qwen/Qwen2.5-0.5B-Instruct \
-  --data_file data/math_step_dpo_train.parquet \
-  --samples 20 \
-  --max_length 256 \
-  --batch_size 1 \
-  --gradient_accumulation_steps 4 \
-  --epochs 1
+chmod +x scripts/run_4090_24g_training.sh
+scripts/run_4090_24g_training.sh all
 ```
 
-正式实验可以提高样本量：
+下面这组命令默认使用全量数据，不再抽样。`batch_size` 是实际进入显存的 micro batch，`gradient_accumulation_steps=1` 可以让 GPU 更忙；如果 `nvidia-smi` 显示显存仍有明显余量，优先继续增大 `batch_size`。
 
 ```bash
 python -m src.train_sft \
   --model Qwen/Qwen2.5-0.5B-Instruct \
   --data_file data/math_step_dpo_train.parquet \
-  --samples 300 \
-  --max_length 512 \
-  --batch_size 1 \
-  --gradient_accumulation_steps 8 \
-  --epochs 1
+  --max_length 1024 \
+  --batch_size 16 \
+  --gradient_accumulation_steps 1 \
+  --epochs 2 \
+  --rank 32 \
+  --alpha 64 \
+  --lr 2e-5
+```
+
+如果 24GB 显存仍没有接近用满，可以继续加压：
+
+```bash
+python -m src.train_sft \
+  --model Qwen/Qwen2.5-0.5B-Instruct \
+  --data_file data/math_step_dpo_train.parquet \
+  --max_length 1536 \
+  --batch_size 24 \
+  --gradient_accumulation_steps 1 \
+  --epochs 2 \
+  --rank 32 \
+  --alpha 64 \
+  --lr 2e-5
+```
+
+如果出现 CUDA out of memory，先把 `batch_size` 降到 12；仍然 OOM 再把 `max_length` 降回 768。排查环境时才需要使用 `--samples 20 --batch_size 1` 这类 smoke test 配置。
+
+脚本也支持用环境变量继续加压，例如：
+
+```bash
+SFT_MAX_LENGTH=1536 SFT_BATCH_SIZE=24 scripts/run_4090_24g_training.sh sft
 ```
 
 训练后会生成：
@@ -131,9 +152,9 @@ outputs/dpo_check.txt
 - 交换 chosen/rejected 后 loss 发生变化；
 - DPO loss 公式由代码手写实现。
 
-## 完整 DPO 小规模训练
+## 完整 DPO 训练
 
-GPU 用户可以继续跑 100 对 chosen/rejected 做完整 DPO 训练：
+DPO 同时计算 policy/reference 与 chosen/rejected，显存压力明显高于 SFT。4090 24GB 建议从下面配置开始：
 
 ```bash
 python -m src.train_dpo \
@@ -141,15 +162,40 @@ python -m src.train_dpo \
   --init_adapter_dir outputs/sft_lora \
   --output_dir outputs/dpo_lora \
   --data_file data/math_step_dpo_train.parquet \
-  --samples 100 \
-  --max_length 512 \
-  --batch_size 1 \
-  --gradient_accumulation_steps 4 \
-  --epochs 1 \
-  --rank 8 \
-  --alpha 16 \
+  --max_length 1024 \
+  --batch_size 8 \
+  --gradient_accumulation_steps 1 \
+  --epochs 2 \
+  --rank 32 \
+  --alpha 64 \
   --lr 1e-5 \
   --beta 0.1
+```
+
+如果显存仍有余量，可以继续加压到：
+
+```bash
+python -m src.train_dpo \
+  --model Qwen/Qwen2.5-0.5B-Instruct \
+  --init_adapter_dir outputs/sft_lora \
+  --output_dir outputs/dpo_lora \
+  --data_file data/math_step_dpo_train.parquet \
+  --max_length 1536 \
+  --batch_size 12 \
+  --gradient_accumulation_steps 1 \
+  --epochs 2 \
+  --rank 32 \
+  --alpha 64 \
+  --lr 1e-5 \
+  --beta 0.1
+```
+
+如果出现 CUDA out of memory，先把 DPO 的 `batch_size` 降到 6；仍然 OOM 再把 `max_length` 降回 768。
+
+脚本加压 DPO 的示例：
+
+```bash
+DPO_MAX_LENGTH=1536 DPO_BATCH_SIZE=12 scripts/run_4090_24g_training.sh dpo
 ```
 
 训练后会生成：

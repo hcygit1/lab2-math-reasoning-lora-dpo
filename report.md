@@ -72,7 +72,7 @@ scale = alpha / rank
 
 ## 5. SFT 训练结果
 
-SFT 使用 300 条 `prompt -> chosen` 样本，训练参数如下：
+当前报告曲线来自调试阶段的 300 条 `prompt -> chosen` 样本，训练参数如下：
 
 ```bash
 /root/miniconda3/bin/python -m src.train_sft \
@@ -112,6 +112,21 @@ SFT 使用 300 条 `prompt -> chosen` 样本，训练参数如下：
 
 因此，loss 曲线不需要像大规模训练那样平滑下降。这个实验更重要的是证明 LoRA 参数能训练、loss 能正常计算、adapter 能保存，并且后续 DPO 验证结果符合预期。
 
+如果按 RTX 4090D 24GB 显存进行正式重跑，项目中的默认参数已调整为全量数据与更高 micro batch。推荐命令如下：
+
+```bash
+/root/miniconda3/bin/python -m src.train_sft \
+  --model Qwen/Qwen2.5-0.5B-Instruct \
+  --data_file data/math_step_dpo_train.parquet \
+  --max_length 1024 \
+  --batch_size 16 \
+  --gradient_accumulation_steps 1 \
+  --epochs 2 \
+  --rank 32 \
+  --alpha 64 \
+  --lr 2e-5
+```
+
 ## 6. DPO 实现与训练
 
 DPO loss 手写实现如下逻辑：
@@ -132,7 +147,7 @@ DPO 训练中：
 - chosen 和 rejected 分别计算 sequence log probability。
 - 梯度只回传到 policy model 的 LoRA 参数。
 
-DPO 训练命令：
+当前报告曲线来自调试阶段的 100 对偏好样本，DPO 训练命令：
 
 ```bash
 /root/miniconda3/bin/python -m src.train_dpo \
@@ -158,6 +173,24 @@ DPO 训练命令：
 | DPO 偏好样本数 | 100 pairs |
 | DPO 训练耗时 | 约 29 秒 |
 | DPO 最终 loss | 0.6822 |
+
+如果按 RTX 4090D 24GB 显存进行正式 DPO 重跑，推荐使用全量偏好数据和更高 micro batch：
+
+```bash
+/root/miniconda3/bin/python -m src.train_dpo \
+  --model Qwen/Qwen2.5-0.5B-Instruct \
+  --init_adapter_dir outputs/sft_lora \
+  --output_dir outputs/dpo_lora \
+  --data_file data/math_step_dpo_train.parquet \
+  --max_length 1024 \
+  --batch_size 8 \
+  --gradient_accumulation_steps 1 \
+  --epochs 2 \
+  --rank 32 \
+  --alpha 64 \
+  --lr 1e-5 \
+  --beta 0.1
+```
 
 ### DPO Loss 曲线
 
@@ -341,12 +374,12 @@ DPO 不一定只看最终输出质量，也可以通过偏好对交换验证 los
 
 ## 10. 资源约束与实验反思
 
-本实验运行在 RTX 4090D 24GB GPU 上，模型规模为 0.5B，LoRA 可训练参数比例仅 0.11%，因此显存压力较低。训练时间也远低于实验要求中的 3 小时限制：
+本实验运行在 RTX 4090D 24GB GPU 上，模型规模为 0.5B，LoRA 可训练参数比例仅 0.11%，因此调试阶段显存压力较低。训练时间也远低于实验要求中的 3 小时限制：
 
 - SFT 300 条样本约 40 秒。
 - DPO 100 对样本约 29 秒。
 
-本实验中 loss 曲线虽然波动较大，但这是小 batch、小样本、数学推理任务下的正常现象。实验重点在于：
+本实验中 loss 曲线虽然波动较大，但这是调试阶段小 batch、小样本、数学推理任务下的正常现象。若使用 4090D 24GB 正式配置，可通过全量数据、更大 micro batch 和更长序列长度提高 GPU 利用率，并降低单步 loss 的随机波动。实验重点在于：
 
 - 手写 LoRA 公式正确。
 - base 参数冻结，adapter 参数可训练。

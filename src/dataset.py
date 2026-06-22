@@ -48,13 +48,14 @@ def normalize_preference_row(row: dict[str, Any]) -> PreferenceExample:
 
 
 def load_math_step_dpo(
-    sample_count: int = 500,
+    sample_count: int | None = None,
     split: str = "train",
     data_file: str | None = None,
 ) -> list[PreferenceExample]:
+    split_expr = split if not sample_count or sample_count <= 0 else f"{split}[:{sample_count}]"
     local_data_file = data_file or os.environ.get("MATH_STEP_DPO_PARQUET")
     if local_data_file:
-        dataset = load_dataset("parquet", data_files={split: local_data_file}, split=f"{split}[:{sample_count}]")
+        dataset = load_dataset("parquet", data_files={split: local_data_file}, split=split_expr)
     else:
-        dataset = load_dataset("xinlai/Math-Step-DPO-10K", split=f"{split}[:{sample_count}]")
+        dataset = load_dataset("xinlai/Math-Step-DPO-10K", split=split_expr)
     return [normalize_preference_row(row) for row in dataset]
