@@ -18,3 +18,5 @@ runs/
 *.pth
 
 outputs/sft_lora/
+outputs/dpo_lora/
+outputs/.ipynb_checkpoints/

@@ -1,3 +1,4 @@
-DPO normal loss: 0.532641
-DPO swapped loss: 1.022753
-Batch size: 16
+DPO normal loss: 0.498047
+DPO swapped loss: 1.328125
+Batch size: 64
+Micro batch size: 4

@@ -7,7 +7,7 @@
 - 手写 LoRA adapter，并注入 Transformer 注意力模块中的 `q_proj` 与 `v_proj`。
 - 使用 `chosen` 回答进行 LoRA SFT 训练。
 - 手写 DPO loss，并先进行 chosen/rejected 交换验证。
-- 在 100 对偏好样本上完成完整 DPO 小规模训练。
+- 在 RTX 4090D 24GB 上完成全量 SFT 与完整 DPO 训练。
 - 对比 Base Model 与后训练模型的输出差异。
 
 本实验重点不是追求最终 benchmark 分数，而是验证后训练流水线的实现正确性。
@@ -20,14 +20,14 @@
 | 数据集 | `xinlai/Math-Step-DPO-10K` |
 | SFT 数据 | `prompt -> chosen` |
 | DPO 数据 | `prompt + chosen + rejected` |
-| SFT 样本数 | 300 |
-| DPO 样本数 | 100 pairs |
+| SFT 样本数 | 全量数据，2 epochs |
+| DPO 样本数 | 全量偏好对，2 epochs |
 | GPU | RTX 4090D 24GB |
 | LoRA 注入位置 | `q_proj`、`v_proj` |
-| LoRA rank | 8 |
-| LoRA alpha | 16 |
-| 可训练参数 | 540,672 / 494,573,440 |
-| 可训练参数比例 | 0.11% |
+| LoRA rank | 32 |
+| LoRA alpha | 64 |
+| 可训练参数 | 2,162,688 / 496,195,456 |
+| 可训练参数比例 | 0.44% |
 
 ## 3. 后训练流程架构
 
@@ -72,47 +72,13 @@ scale = alpha / rank
 
 ## 5. SFT 训练结果
 
-当前报告曲线来自调试阶段的 300 条 `prompt -> chosen` 样本，训练参数如下：
+当前报告曲线来自 RTX 4090D 24GB 上的正式 SFT 训练。训练使用全量 `prompt -> chosen` 数据，不再额外抽样，训练参数如下：
 
 ```bash
-/root/miniconda3/bin/python -m src.train_sft \
-  --model Qwen/Qwen2.5-0.5B-Instruct \
-  --data_file data/math_step_dpo_train.parquet \
-  --samples 300 \
-  --max_length 512 \
-  --batch_size 1 \
-  --gradient_accumulation_steps 8 \
-  --epochs 1 \
-  --rank 8 \
-  --alpha 16
+scripts/run_4090_24g_training.sh sft
 ```
 
-训练结果：
-
-| 指标 | 数值 |
-|---|---:|
-| 训练样本数 | 300 |
-| 可训练参数 | 540,672 |
-| 总参数量 | 494,573,440 |
-| 可训练比例 | 0.11% |
-| 最终 SFT loss | 0.7964 |
-
-### SFT Loss 曲线
-
-![SFT loss 曲线](outputs/sft_loss_curve.png)
-
-### 为什么 loss 曲线波动很大
-
-曲线波动较大是正常现象，主要原因有四点：
-
-1. **batch size 很小**：本实验使用 `batch_size=1`，每一步 loss 只对应单条样本，随机性很强。
-2. **数学题难度不均匀**：不同样本的推理步骤长度、答案形式和难度差异较大，导致单步 loss 不稳定。
-3. **样本量较小**：SFT 只训练 300 条样本，目标是验证流程正确，而不是充分收敛。
-4. **逐步 loss 本身噪声大**：报告中浅色线表示原始逐步 loss，蓝色线表示滑动平均趋势，分析时应主要看平均趋势和后续验证结果。
-
-因此，loss 曲线不需要像大规模训练那样平滑下降。这个实验更重要的是证明 LoRA 参数能训练、loss 能正常计算、adapter 能保存，并且后续 DPO 验证结果符合预期。
-
-如果按 RTX 4090D 24GB 显存进行正式重跑，项目中的默认参数已调整为全量数据与更高 micro batch。推荐命令如下：
+该脚本展开后的关键配置为：
 
 ```bash
 /root/miniconda3/bin/python -m src.train_sft \
@@ -127,6 +93,34 @@ scale = alpha / rank
   --lr 2e-5 \
   --dtype bf16
 ```
+
+训练结果：
+
+| 指标 | 数值 |
+|---|---:|
+| 训练轮数 | 2 epochs |
+| 训练步数 | 2700 steps |
+| 每轮步数 | 1350 steps |
+| 可训练参数 | 2,162,688 |
+| 总参数量 | 496,195,456 |
+| 可训练比例 | 0.44% |
+| 最终 SFT loss | 1.2732 |
+| 训练耗时 | 约 6 分 22 秒 |
+
+### SFT Loss 曲线
+
+![SFT loss 曲线](outputs/sft_loss_curve.png)
+
+### 为什么 loss 曲线波动很大
+
+曲线波动较大是正常现象，主要原因有四点：
+
+1. **逐步 loss 按 micro batch 记录**：虽然有效 batch 通过梯度累积变大，但日志中的原始 loss 仍按每个 micro batch 记录，因此单点噪声明显。
+2. **数学题难度不均匀**：不同样本的推理步骤长度、答案形式和难度差异较大，导致单步 loss 不稳定。
+3. **样本文本长度差异较大**：同样的 batch size 下，不同样本包含的有效 token 数不同，loss 的可比性会受到影响。
+4. **逐步 loss 本身噪声大**：报告中浅色线表示原始逐步 loss，蓝色线表示滑动平均趋势，分析时应主要看平均趋势和后续验证结果。
+
+因此，loss 曲线不需要像大规模稳定预训练那样单调下降。本实验更重要的是证明 LoRA 参数能训练、loss 能正常计算、adapter 能保存，并且后续 DPO 验证结果符合预期。
 
 ## 6. DPO 实现与训练
 
@@ -148,34 +142,13 @@ DPO 训练中：
 - chosen 和 rejected 分别计算 sequence log probability。
 - 梯度只回传到 policy model 的 LoRA 参数。
 
-当前报告曲线来自调试阶段的 100 对偏好样本，DPO 训练命令：
+当前报告曲线来自正式 DPO 训练。DPO 训练使用 SFT adapter 初始化 policy model，并使用同一基础模型作为 reference model。训练命令如下：
 
 ```bash
-/root/miniconda3/bin/python -m src.train_dpo \
-  --model Qwen/Qwen2.5-0.5B-Instruct \
-  --init_adapter_dir outputs/sft_lora \
-  --output_dir outputs/dpo_lora \
-  --data_file data/math_step_dpo_train.parquet \
-  --samples 100 \
-  --max_length 512 \
-  --batch_size 1 \
-  --gradient_accumulation_steps 4 \
-  --epochs 1 \
-  --rank 8 \
-  --alpha 16 \
-  --lr 1e-5 \
-  --beta 0.1
+scripts/run_4090_24g_training.sh dpo
 ```
 
-训练结果：
-
-| 指标 | 数值 |
-|---|---:|
-| DPO 偏好样本数 | 100 pairs |
-| DPO 训练耗时 | 约 29 秒 |
-| DPO 最终 loss | 0.6822 |
-
-如果按 RTX 4090D 24GB 显存进行正式 DPO 重跑，推荐使用全量偏好数据和更高 micro batch：
+该脚本展开后的关键配置为：
 
 ```bash
 /root/miniconda3/bin/python -m src.train_dpo \
@@ -194,6 +167,16 @@ DPO 训练中：
   --dtype bf16
 ```
 
+训练结果：
+
+| 指标 | 数值 |
+|---|---:|
+| 训练轮数 | 2 epochs |
+| 训练步数 | 5398 steps |
+| 每轮步数 | 2699 steps |
+| DPO 最终 loss | 0.2812 |
+| DPO 训练耗时 | 约 22 分 59 秒 |
+
 ### DPO Loss 曲线
 
 ![DPO loss 曲线](outputs/dpo_loss_curve.png)
@@ -210,22 +193,24 @@ DPO loss 曲线同样存在波动，原因与 SFT 类似，但还额外受到 ch
 验证结果：
 
 ```text
-DPO normal loss: 0.532641
-DPO swapped loss: 1.022753
-Batch size: 16
+DPO normal loss: 0.498047
+DPO swapped loss: 1.328125
+Batch size: 64
+Micro batch size: 4
 ```
 
 | 指标 | 数值 |
 |---|---:|
-| Normal DPO loss | 0.532641 |
-| Swapped DPO loss | 1.022753 |
-| Batch size | 16 |
+| Normal DPO loss | 0.498047 |
+| Swapped DPO loss | 1.328125 |
+| Batch size | 64 |
+| Micro batch size | 4 |
 
 可以看到：
 
 ```text
 normal loss < swapped loss
-0.532641 < 1.022753
+0.498047 < 1.328125
 ```
 
 这说明模型对 chosen/rejected 的偏好方向能够被 DPO loss 区分出来，手写 DPO loss 的计算逻辑是有效的。
@@ -239,48 +224,47 @@ normal loss < swapped loss
 **Prompt**
 
 ```text
-If 3x + 5 = 20, what is x? Show the steps.
+Solve the equation 4(2x - 3) + 5 = 3x + 17. Show each algebra step and give the final value of x.
 ```
 
 **Base Model 输出摘要**
 
 ```text
-To solve for x in 3x + 5 = 20, subtract 5 from both sides, get 3x = 15,
-then divide both sides by ...
+The base model correctly distributes 4, combines like terms, isolates x,
+and gives x = 24/5.
 ```
 
-**Fine-tuned Model 输出摘要**
+**DPO-LoRA 输出摘要**
 
 ```text
-To solve for x in 3x + 5 = 20, subtract 5 from both sides to move the
-constant term to the right side, get 3x = 15, then divide both sides ...
+The DPO-LoRA model also gives x = 24/5, while keeping the intermediate
+algebra steps clear and ending with a boxed final answer.
 ```
 
-两个模型都能给出基本正确的解题步骤，Fine-tuned 版本在表达上更贴近逐步推理格式。
+两个模型都能给出正确答案。DPO-LoRA 版本保留了必要推理步骤，并更稳定地使用数学解答中常见的 `\boxed{}` 最终答案格式。
 
 ### 示例 2
 
 **Prompt**
 
 ```text
-A rectangle has length 12 and width 7. What is its area?
+A store gives a 20% discount on a jacket. After the discount, the price is 96 dollars. What was the original price? Show the calculation.
 ```
 
 **Base Model 输出摘要**
 
 ```text
-Area = Length × Width
-Area = 12 × 7
-Area = 84
+The base model sets 0.80P = 96 and solves P = 120.
 ```
 
-**Fine-tuned Model 输出摘要**
+**DPO-LoRA 输出摘要**
 
 ```text
-The area would be 12 × 7 = 84. The answer is: 84
+The DPO-LoRA model explains that the discounted price is 0.8P,
+then computes P = 96 / 0.8 = 120 and returns boxed 120.
 ```
 
-Fine-tuned 模型输出更短，并直接给出答案。对于简单数学题，这种输出更接近最终解答形式。
+在 4 个多步数学推理样例中，Base Model 与 DPO-LoRA 均能得到正确答案。DPO-LoRA 的主要变化体现在回答格式和表达风格上：它保留必要推理步骤，同时减少部分冗余说明，并更稳定地使用 boxed 形式给出最终答案。这说明后训练没有削弱基础数学推理能力，并使输出更接近偏好数据中的数学解答格式。
 
 ## 9. AI Collaboration Diary
 
@@ -357,15 +341,15 @@ ChunkedEncodingError
 
 - SFT 后 LoRA adapter 初始化 policy model。
 - 原始 base model 作为 frozen reference model。
-- 100 对 chosen/rejected 偏好样本进行小规模 DPO 训练。
+- 全量 chosen/rejected 偏好样本进行 DPO 训练。
 
 **Verification**
 
 DPO 训练完成后，验证结果为：
 
 ```text
-normal loss = 0.532641
-swapped loss = 1.022753
+normal loss = 0.498047
+swapped loss = 1.328125
 ```
 
 交换 chosen/rejected 后 loss 明显升高，说明偏好方向正确。
@@ -376,12 +360,12 @@ DPO 不一定只看最终输出质量，也可以通过偏好对交换验证 los
 
 ## 10. 资源约束与实验反思
 
-本实验运行在 RTX 4090D 24GB GPU 上，模型规模为 0.5B，LoRA 可训练参数比例仅 0.11%，因此调试阶段显存压力较低。训练时间也远低于实验要求中的 3 小时限制：
+本实验运行在 RTX 4090D 24GB GPU 上，模型规模为 0.5B，LoRA 可训练参数比例为 0.44%。训练时间远低于实验要求中的 3 小时限制：
 
-- SFT 300 条样本约 40 秒。
-- DPO 100 对样本约 29 秒。
+- SFT 全量数据 2 epochs 约 6 分 22 秒。
+- DPO 全量偏好数据 2 epochs 约 22 分 59 秒。
 
-本实验中 loss 曲线虽然波动较大，但这是调试阶段小 batch、小样本、数学推理任务下的正常现象。若使用 4090D 24GB 正式配置，可通过全量数据、bf16、gradient checkpointing 和更大的有效 batch 提高 GPU 利用率，并降低单步 loss 的随机波动。实验重点在于：
+本实验中 loss 曲线虽然波动较大，但这是数学推理偏好数据、变长文本、micro batch 记录方式和样本难度差异共同造成的正常现象。通过 bf16、gradient checkpointing 和更大的有效 batch 可以提高 GPU 利用率，并降低平均趋势的随机波动。实验重点在于：
 
 - 手写 LoRA 公式正确。
 - base 参数冻结，adapter 参数可训练。
@@ -407,6 +391,7 @@ outputs/pipeline_diagram.png
 requirements.txt
 README.md
 report.md
+report.docx
 ```
 
 不要提交：

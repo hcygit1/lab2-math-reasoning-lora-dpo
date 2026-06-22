@@ -5,9 +5,9 @@
 ```text
 Base Model
 -> 手写 LoRA 注入 q_proj / v_proj
--> 使用 Math-Step-DPO-10K 的 chosen 回答做小样本 SFT
+-> 使用 Math-Step-DPO-10K 的 chosen 回答做 LoRA SFT
 -> 手写 DPO loss 做 chosen/rejected 单批次验证
--> 对比 Base 与 SFT-LoRA 输出差异
+-> 对比 Base 与 DPO-LoRA 输出差异
 ```
 
 ## 项目结构
@@ -20,7 +20,7 @@ src/
   train_sft.py     # LoRA SFT 训练入口
   dpo_loss.py      # 手写 DPO loss 和序列 log-prob
   verify_dpo.py    # DPO 单批次验证入口
-  evaluate.py      # Base vs SFT-LoRA 输出对比
+  evaluate.py      # Base vs DPO-LoRA 输出对比
 tests/
   test_lora.py
   test_dpo_loss.py
