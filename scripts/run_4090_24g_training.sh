@@ -24,7 +24,8 @@ run_sft() {
     --epochs "${SFT_EPOCHS:-2}" \
     --rank "${LORA_RANK:-32}" \
     --alpha "${LORA_ALPHA:-64}" \
-    --lr "${SFT_LR:-2e-5}"
+    --lr "${SFT_LR:-2e-5}" \
+    --log_dir "${SFT_LOG_DIR:-runs/sft}"
 }
 
 run_dpo() {
@@ -40,7 +41,8 @@ run_dpo() {
     --rank "${LORA_RANK:-32}" \
     --alpha "${LORA_ALPHA:-64}" \
     --lr "${DPO_LR:-1e-5}" \
-    --beta "${DPO_BETA:-0.1}"
+    --beta "${DPO_BETA:-0.1}" \
+    --log_dir "${DPO_LOG_DIR:-runs/dpo}"
 }
 
 case "$MODE" in

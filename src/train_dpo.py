@@ -9,6 +9,7 @@ os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 
 import torch
 from torch.optim import AdamW
+from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -39,6 +40,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--rank", type=int, default=32)
     parser.add_argument("--alpha", type=float, default=64.0)
     parser.add_argument("--dropout", type=float, default=0.05)
+    parser.add_argument("--log_dir", default="runs/dpo", help="TensorBoard log directory.")
     return parser.parse_args()
 
 
@@ -102,43 +104,49 @@ def main() -> None:
     rejected_texts = [format_pair_text(example.prompt, example.rejected) for example in examples]
 
     optimizer = AdamW((p for p in policy.parameters() if p.requires_grad), lr=args.lr)
+    writer = SummaryWriter(log_dir=args.log_dir)
     loss_rows: list[dict[str, float | int]] = []
     step = 0
     optimizer.zero_grad(set_to_none=True)
 
-    for epoch in range(args.epochs):
-        progress = tqdm(range(0, len(examples), args.batch_size), desc=f"dpo epoch {epoch + 1}")
-        for start in progress:
-            chosen_batch = chosen_texts[start : start + args.batch_size]
-            rejected_batch = rejected_texts[start : start + args.batch_size]
+    try:
+        for epoch in range(args.epochs):
+            progress = tqdm(range(0, len(examples), args.batch_size), desc=f"dpo epoch {epoch + 1}")
+            for start in progress:
+                chosen_batch = chosen_texts[start : start + args.batch_size]
+                rejected_batch = rejected_texts[start : start + args.batch_size]
 
-            policy_chosen = batch_sequence_logps(policy, tokenizer, chosen_batch, args.max_length, device)
-            policy_rejected = batch_sequence_logps(policy, tokenizer, rejected_batch, args.max_length, device)
-            with torch.no_grad():
-                reference_chosen = batch_sequence_logps(reference, tokenizer, chosen_batch, args.max_length, device)
-                reference_rejected = batch_sequence_logps(reference, tokenizer, rejected_batch, args.max_length, device)
+                policy_chosen = batch_sequence_logps(policy, tokenizer, chosen_batch, args.max_length, device)
+                policy_rejected = batch_sequence_logps(policy, tokenizer, rejected_batch, args.max_length, device)
+                with torch.no_grad():
+                    reference_chosen = batch_sequence_logps(reference, tokenizer, chosen_batch, args.max_length, device)
+                    reference_rejected = batch_sequence_logps(reference, tokenizer, rejected_batch, args.max_length, device)
 
-            loss = dpo_loss(
-                policy_chosen,
-                policy_rejected,
-                reference_chosen,
-                reference_rejected,
-                beta=args.beta,
-            )
-            (loss / args.gradient_accumulation_steps).backward()
+                loss = dpo_loss(
+                    policy_chosen,
+                    policy_rejected,
+                    reference_chosen,
+                    reference_rejected,
+                    beta=args.beta,
+                )
+                (loss / args.gradient_accumulation_steps).backward()
 
-            if (step + 1) % args.gradient_accumulation_steps == 0:
-                optimizer.step()
-                optimizer.zero_grad(set_to_none=True)
+                if (step + 1) % args.gradient_accumulation_steps == 0:
+                    optimizer.step()
+                    optimizer.zero_grad(set_to_none=True)
 
-            raw_loss = float(loss.detach().cpu())
-            progress.set_postfix(loss=f"{raw_loss:.4f}")
-            loss_rows.append({"step": step, "loss": raw_loss})
-            step += 1
+                raw_loss = float(loss.detach().cpu())
+                progress.set_postfix(loss=f"{raw_loss:.4f}")
+                writer.add_scalar("train/loss", raw_loss, step)
+                writer.add_scalar("train/epoch", epoch + 1, step)
+                loss_rows.append({"step": step, "loss": raw_loss})
+                step += 1
 
-    if step % args.gradient_accumulation_steps != 0:
-        optimizer.step()
-        optimizer.zero_grad(set_to_none=True)
+        if step % args.gradient_accumulation_steps != 0:
+            optimizer.step()
+            optimizer.zero_grad(set_to_none=True)
+    finally:
+        writer.close()
 
     save_lora_adapters(
         policy,

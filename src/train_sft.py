@@ -9,6 +9,7 @@ os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 
 import torch
 from torch.optim import AdamW
+from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -35,6 +36,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dropout", type=float, default=0.05)
     parser.add_argument("--data_file", default=None, help="Optional local Math-Step-DPO parquet file.")
     parser.add_argument("--output_dir", default="outputs/sft_lora")
+    parser.add_argument("--log_dir", default="runs/sft", help="TensorBoard log directory.")
     return parser.parse_args()
 
 
@@ -61,34 +63,40 @@ def main() -> None:
     texts = [build_sft_text(example.prompt, example.chosen) for example in examples]
     optimizer = AdamW((p for p in model.parameters() if p.requires_grad), lr=args.lr)
     model.train()
+    writer = SummaryWriter(log_dir=args.log_dir)
 
     loss_rows: list[dict[str, float | int]] = []
     step = 0
     optimizer.zero_grad(set_to_none=True)
-    for epoch in range(args.epochs):
-        progress = tqdm(range(0, len(texts), args.batch_size), desc=f"epoch {epoch + 1}")
-        for start in progress:
-            batch_texts = texts[start : start + args.batch_size]
-            batch = tokenizer(
-                batch_texts,
-                return_tensors="pt",
-                padding=True,
-                truncation=True,
-                max_length=args.max_length,
-            ).to(device)
-            labels = batch["input_ids"].clone()
-            labels[batch["attention_mask"].eq(0)] = -100
-            loss = model(**batch, labels=labels).loss / args.gradient_accumulation_steps
-            loss.backward()
+    try:
+        for epoch in range(args.epochs):
+            progress = tqdm(range(0, len(texts), args.batch_size), desc=f"epoch {epoch + 1}")
+            for start in progress:
+                batch_texts = texts[start : start + args.batch_size]
+                batch = tokenizer(
+                    batch_texts,
+                    return_tensors="pt",
+                    padding=True,
+                    truncation=True,
+                    max_length=args.max_length,
+                ).to(device)
+                labels = batch["input_ids"].clone()
+                labels[batch["attention_mask"].eq(0)] = -100
+                loss = model(**batch, labels=labels).loss / args.gradient_accumulation_steps
+                loss.backward()
 
-            if (step + 1) % args.gradient_accumulation_steps == 0:
-                optimizer.step()
-                optimizer.zero_grad(set_to_none=True)
+                if (step + 1) % args.gradient_accumulation_steps == 0:
+                    optimizer.step()
+                    optimizer.zero_grad(set_to_none=True)
 
-            raw_loss = float(loss.detach().cpu()) * args.gradient_accumulation_steps
-            progress.set_postfix(loss=f"{raw_loss:.4f}")
-            loss_rows.append({"step": step, "loss": raw_loss})
-            step += 1
+                raw_loss = float(loss.detach().cpu()) * args.gradient_accumulation_steps
+                progress.set_postfix(loss=f"{raw_loss:.4f}")
+                writer.add_scalar("train/loss", raw_loss, step)
+                writer.add_scalar("train/epoch", epoch + 1, step)
+                loss_rows.append({"step": step, "loss": raw_loss})
+                step += 1
+    finally:
+        writer.close()
 
     save_lora_adapters(
         model,

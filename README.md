@@ -80,6 +80,21 @@ chmod +x scripts/run_4090_24g_training.sh
 scripts/run_4090_24g_training.sh all
 ```
 
+训练曲线会同时写入 CSV 和 TensorBoard：
+
+```text
+outputs/loss_log.csv
+outputs/dpo_loss_log.csv
+runs/sft/
+runs/dpo/
+```
+
+查看实时曲线：
+
+```bash
+tensorboard --logdir runs --host 0.0.0.0 --port 6006
+```
+
 下面这组命令默认使用全量数据，不再抽样。`batch_size` 是实际进入显存的 micro batch，`gradient_accumulation_steps=1` 可以让 GPU 更忙；如果 `nvidia-smi` 显示显存仍有明显余量，优先继续增大 `batch_size`。
 
 ```bash
