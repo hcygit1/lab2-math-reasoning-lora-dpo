@@ -23,7 +23,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--base_model", default="Qwen/Qwen2.5-0.5B-Instruct")
     parser.add_argument("--adapter_dir", default="outputs/sft_lora")
     parser.add_argument("--max_new_tokens", type=int, default=128)
+    parser.add_argument("--dtype", choices=("auto", "bf16", "fp16", "fp32"), default="bf16")
     return parser.parse_args()
+
+
+def resolve_torch_dtype(dtype: str) -> torch.dtype | str:
+    if dtype == "auto":
+        return "auto"
+    if dtype == "bf16":
+        return torch.bfloat16
+    if dtype == "fp16":
+        return torch.float16
+    return torch.float32
 
 
 def generate(model, tokenizer, prompt: str, max_new_tokens: int, device: str) -> str:
@@ -47,8 +58,16 @@ def main() -> None:
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    base = AutoModelForCausalLM.from_pretrained(args.base_model, trust_remote_code=True).to(device).eval()
-    lora = AutoModelForCausalLM.from_pretrained(args.base_model, trust_remote_code=True)
+    base = AutoModelForCausalLM.from_pretrained(
+        args.base_model,
+        trust_remote_code=True,
+        torch_dtype=resolve_torch_dtype(args.dtype),
+    ).to(device).eval()
+    lora = AutoModelForCausalLM.from_pretrained(
+        args.base_model,
+        trust_remote_code=True,
+        torch_dtype=resolve_torch_dtype(args.dtype),
+    )
     load_lora_adapters(lora, args.adapter_dir)
     lora = lora.to(device).eval()
 

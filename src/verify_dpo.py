@@ -20,12 +20,39 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--reference_model", default="Qwen/Qwen2.5-0.5B-Instruct")
     parser.add_argument("--samples", type=int, default=16)
     parser.add_argument("--max_length", type=int, default=512)
+    parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--beta", type=float, default=0.1)
     parser.add_argument("--data_file", default=None, help="Optional local Math-Step-DPO parquet file.")
+    parser.add_argument("--dtype", choices=("auto", "bf16", "fp16", "fp32"), default="bf16")
     return parser.parse_args()
 
 
-def batch_logps(model, tokenizer, texts: list[str], max_length: int, device: str) -> torch.Tensor:
+def resolve_torch_dtype(dtype: str) -> torch.dtype | str:
+    if dtype == "auto":
+        return "auto"
+    if dtype == "bf16":
+        return torch.bfloat16
+    if dtype == "fp16":
+        return torch.float16
+    return torch.float32
+
+
+def batch_logps(
+    model,
+    tokenizer,
+    texts: list[str],
+    max_length: int,
+    batch_size: int,
+    device: str,
+) -> torch.Tensor:
+    all_logps = []
+    for start in range(0, len(texts), batch_size):
+        batch_texts = texts[start : start + batch_size]
+        all_logps.append(_batch_logps(model, tokenizer, batch_texts, max_length, device).cpu())
+    return torch.cat(all_logps)
+
+
+def _batch_logps(model, tokenizer, texts: list[str], max_length: int, device: str) -> torch.Tensor:
     batch = tokenizer(
         texts,
         return_tensors="pt",
@@ -49,19 +76,27 @@ def main() -> None:
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    policy = AutoModelForCausalLM.from_pretrained(args.reference_model, trust_remote_code=True)
+    policy = AutoModelForCausalLM.from_pretrained(
+        args.reference_model,
+        trust_remote_code=True,
+        torch_dtype=resolve_torch_dtype(args.dtype),
+    )
     load_lora_adapters(policy, args.adapter_dir)
     policy = policy.to(device).eval()
-    reference = AutoModelForCausalLM.from_pretrained(args.reference_model, trust_remote_code=True).to(device).eval()
+    reference = AutoModelForCausalLM.from_pretrained(
+        args.reference_model,
+        trust_remote_code=True,
+        torch_dtype=resolve_torch_dtype(args.dtype),
+    ).to(device).eval()
 
     examples = load_math_step_dpo(sample_count=args.samples, data_file=args.data_file)
     chosen_texts = [f"Question:\n{example.prompt}\n\nAnswer:\n{example.chosen}" for example in examples]
     rejected_texts = [f"Question:\n{example.prompt}\n\nAnswer:\n{example.rejected}" for example in examples]
 
-    policy_chosen = batch_logps(policy, tokenizer, chosen_texts, args.max_length, device)
-    policy_rejected = batch_logps(policy, tokenizer, rejected_texts, args.max_length, device)
-    reference_chosen = batch_logps(reference, tokenizer, chosen_texts, args.max_length, device)
-    reference_rejected = batch_logps(reference, tokenizer, rejected_texts, args.max_length, device)
+    policy_chosen = batch_logps(policy, tokenizer, chosen_texts, args.max_length, args.batch_size, device)
+    policy_rejected = batch_logps(policy, tokenizer, rejected_texts, args.max_length, args.batch_size, device)
+    reference_chosen = batch_logps(reference, tokenizer, chosen_texts, args.max_length, args.batch_size, device)
+    reference_rejected = batch_logps(reference, tokenizer, rejected_texts, args.max_length, args.batch_size, device)
 
     normal_loss = dpo_loss(
         policy_chosen,
@@ -81,6 +116,7 @@ def main() -> None:
         f"DPO normal loss: {normal_loss.item():.6f}\n"
         f"DPO swapped loss: {swapped_loss.item():.6f}\n"
         f"Batch size: {args.samples}\n"
+        f"Micro batch size: {args.batch_size}\n"
     )
     Path("outputs/dpo_check.txt").write_text(report, encoding="utf-8")
     print(report)
