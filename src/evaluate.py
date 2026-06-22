@@ -13,8 +13,10 @@ from src.lora import load_lora_adapters
 
 
 PROMPTS = [
-    "If 3x + 5 = 20, what is x? Show the steps.",
-    "A rectangle has length 12 and width 7. What is its area?",
+    "Solve the equation 4(2x - 3) + 5 = 3x + 17. Show each algebra step and give the final value of x.",
+    "A store gives a 20% discount on a jacket. After the discount, the price is 96 dollars. What was the original price? Show the calculation.",
+    "A train travels 180 kilometers in 2.5 hours. If it continues at the same average speed, how far will it travel in 4 hours? Explain step by step.",
+    "The sum of three consecutive integers is 72. What are the three integers? Show how you set up the equation.",
 ]
 
 
@@ -71,11 +73,11 @@ def main() -> None:
     load_lora_adapters(lora, args.adapter_dir)
     lora = lora.to(device).eval()
 
-    sections = ["# Base vs SFT-LoRA Output Comparison\n"]
+    sections = ["# Base vs DPO-LoRA Output Comparison\n"]
     for prompt in PROMPTS:
         sections.append(f"## Prompt\n\n{prompt}\n")
         sections.append("### Base\n\n" + generate(base, tokenizer, prompt, args.max_new_tokens, device) + "\n")
-        sections.append("### SFT-LoRA\n\n" + generate(lora, tokenizer, prompt, args.max_new_tokens, device) + "\n")
+        sections.append("### DPO-LoRA\n\n" + generate(lora, tokenizer, prompt, args.max_new_tokens, device) + "\n")
 
     Path("outputs/base_vs_lora.md").write_text("\n".join(sections), encoding="utf-8")
     print("Wrote outputs/base_vs_lora.md")
