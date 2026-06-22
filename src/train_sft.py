@@ -71,6 +71,7 @@ def main() -> None:
     if args.gradient_checkpointing:
         model.config.use_cache = False
         model.gradient_checkpointing_enable()
+        model.enable_input_require_grads()
     target_modules = ("q_proj", "v_proj")
     replaced = inject_lora(model, target_modules=target_modules, rank=args.rank, alpha=args.alpha, dropout=args.dropout)
     mark_only_lora_as_trainable(model)

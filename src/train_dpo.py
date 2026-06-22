@@ -109,6 +109,7 @@ def main() -> None:
     if args.gradient_checkpointing:
         policy.config.use_cache = False
         policy.gradient_checkpointing_enable()
+        policy.enable_input_require_grads()
 
     reference = AutoModelForCausalLM.from_pretrained(
         args.model,
