@@ -116,10 +116,10 @@ def draw_line_chart(
     for x, y in raw_points[:: max(1, len(raw_points) // 45)]:
         draw.ellipse((x - 3, y - 3, x + 3, y + 3), fill=(22, 107, 198))
 
-    draw.text((width // 2 - 22, height - 45), "步数", fill=(60, 70, 80), font=label_font)
-    draw.text((18, 52), "损失", fill=(60, 70, 80), font=label_font)
-    draw.text((right - 305, top + 10), "浅色线：逐步原始 loss", fill=(120, 135, 150), font=small_font)
-    draw.text((right - 305, top + 36), "蓝色线：滑动平均趋势", fill=(22, 107, 198), font=small_font)
+    draw.text((width // 2 - 55, height - 45), "Training Step", fill=(60, 70, 80), font=label_font)
+    draw.text((18, 52), "Loss", fill=(60, 70, 80), font=label_font)
+    draw.text((right - 305, top + 10), "Light line: raw step loss", fill=(120, 135, 150), font=small_font)
+    draw.text((right - 305, top + 36), "Blue line: moving average", fill=(22, 107, 198), font=small_font)
     image.save(output_path)
 
 
@@ -131,43 +131,43 @@ def draw_pipeline_diagram(output_path: Path) -> None:
     body_font = chart_font(22)
     note_font = chart_font(19)
 
-    draw.text((70, 48), "高效大模型后训练流程架构", fill=(20, 32, 46), font=title_font)
+    draw.text((70, 48), "Efficient LLM Post-Training Pipeline", fill=(20, 32, 46), font=title_font)
     draw.text(
         (70, 96),
-        "从基础模型出发，依次完成手写 LoRA SFT、完整 DPO 训练与机制验证。",
+        "Base model -> custom LoRA SFT -> full DPO training -> mechanism verification.",
         fill=(70, 85, 100),
         font=note_font,
     )
 
     stages = [
         (
-            "1. 基础模型",
+            "1. Base Model",
             "Qwen2.5-0.5B-Instruct",
-            "加载 tokenizer 与 causal LM；作为 SFT 初始模型，也作为 DPO reference 的来源。",
+            "Load tokenizer and causal LM; used as SFT init and DPO reference source.",
             (236, 244, 255),
         ),
         (
-            "2. 手写 LoRA",
-            "冻结 base，只训练 A/B 低秩矩阵",
-            "在注意力模块 q_proj 与 v_proj 上注入 LoRA：Wx + scale * B(Ax)。",
+            "2. Custom LoRA",
+            "Freeze base; train low-rank A/B matrices",
+            "Inject LoRA into q_proj and v_proj: Wx + scale * B(Ax).",
             (239, 252, 246),
         ),
         (
-            "3. SFT 阶段",
-            "Math-Step-DPO-10K：prompt -> chosen",
-            "使用 300 条 chosen 回答训练 LoRA adapter，得到 outputs/sft_lora。",
+            "3. SFT Stage",
+            "Math-Step-DPO-10K: prompt -> chosen",
+            "Train the LoRA adapter on chosen answers and save outputs/sft_lora.",
             (255, 248, 230),
         ),
         (
-            "4. DPO 阶段",
-            "policy = SFT LoRA，reference = frozen base",
-            "使用 100 对 chosen/rejected 偏好样本，手写 DPO loss 更新 policy LoRA。",
+            "4. DPO Stage",
+            "policy = SFT LoRA; reference = frozen base",
+            "Use chosen/rejected preference pairs and custom DPO loss to update policy LoRA.",
             (255, 238, 238),
         ),
         (
-            "5. 验证与产物",
-            "loss 曲线、DPO 交换验证、输出对比",
-            "normal loss < swapped loss；生成 loss_log、dpo_loss_log 与 base_vs_lora。",
+            "5. Validation",
+            "Loss curves, swapped DPO check, output comparison",
+            "Check normal loss < swapped loss; generate curves and base_vs_lora.",
             (241, 245, 249),
         ),
     ]
@@ -198,7 +198,7 @@ def draw_pipeline_diagram(output_path: Path) -> None:
 
     draw.text(
         (90, 850),
-        "边界说明：LoRA adapter 与 DPO loss 为手写核心逻辑；transformers 只负责模型加载与前向计算。",
+        "Boundary: LoRA adapter and DPO loss are custom core logic; transformers handles model loading and forward passes.",
         fill=(70, 85, 100),
         font=note_font,
     )
@@ -210,8 +210,8 @@ def extract_comparison(markdown: str) -> list[tuple[str, str, str]]:
     examples: list[tuple[str, str, str]] = []
     for chunk in chunks[1:]:
         prompt_match = re.search(r"\n\n(.*?)\n\n### Base", chunk, re.S)
-        base_match = re.search(r"### Base\n\n(.*?)\n\n### SFT-LoRA", chunk, re.S)
-        tuned_match = re.search(r"### SFT-LoRA\n\n(.*)", chunk, re.S)
+        base_match = re.search(r"### Base\n\n(.*?)\n\n### (?:SFT|DPO)-LoRA", chunk, re.S)
+        tuned_match = re.search(r"### (?:SFT|DPO)-LoRA\n\n(.*)", chunk, re.S)
         if prompt_match and base_match and tuned_match:
             prompt = " ".join(prompt_match.group(1).split())
             base = " ".join(base_match.group(1).split())
@@ -454,8 +454,8 @@ def main() -> None:
     sft_rows = read_loss_csv(OUTPUTS / "loss_log.csv")
     dpo_rows = read_loss_csv(OUTPUTS / "dpo_loss_log.csv")
     dpo_check = (OUTPUTS / "dpo_check.txt").read_text(encoding="utf-8")
-    draw_line_chart(sft_rows, "SFT 训练损失曲线（300 条样本）", OUTPUTS / "sft_loss_curve.png")
-    draw_line_chart(dpo_rows, "DPO 训练损失曲线（100 对偏好样本）", OUTPUTS / "dpo_loss_curve.png")
+    draw_line_chart(sft_rows, "SFT Loss Curve", OUTPUTS / "sft_loss_curve.png")
+    draw_line_chart(dpo_rows, "DPO Loss Curve", OUTPUTS / "dpo_loss_curve.png")
     draw_pipeline_diagram(OUTPUTS / "pipeline_diagram.png")
     make_notebook(sft_rows, dpo_rows, dpo_check)
 
