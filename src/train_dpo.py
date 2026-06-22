@@ -32,8 +32,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--data_file", default=None, help="Optional local Math-Step-DPO parquet file.")
     parser.add_argument("--samples", type=int, default=0, help="Number of preference pairs to use; 0 means full dataset.")
     parser.add_argument("--max_length", type=int, default=1024)
-    parser.add_argument("--batch_size", type=int, default=8)
-    parser.add_argument("--gradient_accumulation_steps", type=int, default=1)
+    parser.add_argument("--batch_size", type=int, default=4)
+    parser.add_argument("--gradient_accumulation_steps", type=int, default=2)
     parser.add_argument("--epochs", type=int, default=2)
     parser.add_argument("--lr", type=float, default=1e-5)
     parser.add_argument("--beta", type=float, default=0.1)
@@ -41,7 +41,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--alpha", type=float, default=64.0)
     parser.add_argument("--dropout", type=float, default=0.05)
     parser.add_argument("--log_dir", default="runs/dpo", help="TensorBoard log directory.")
+    parser.add_argument("--dtype", choices=("auto", "bf16", "fp16", "fp32"), default="bf16")
+    parser.add_argument("--gradient_checkpointing", action=argparse.BooleanOptionalAction, default=True)
     return parser.parse_args()
+
+
+def resolve_torch_dtype(dtype: str) -> torch.dtype | str:
+    if dtype == "auto":
+        return "auto"
+    if dtype == "bf16":
+        return torch.bfloat16
+    if dtype == "fp16":
+        return torch.float16
+    return torch.float32
 
 
 def format_pair_text(prompt: str, answer: str) -> str:
@@ -73,7 +85,11 @@ def main() -> None:
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    policy = AutoModelForCausalLM.from_pretrained(args.model, trust_remote_code=True)
+    policy = AutoModelForCausalLM.from_pretrained(
+        args.model,
+        trust_remote_code=True,
+        torch_dtype=resolve_torch_dtype(args.dtype),
+    )
     adapter_path = Path(args.init_adapter_dir)
     if adapter_path.exists():
         replaced = load_lora_adapters(policy, adapter_path)
@@ -90,8 +106,16 @@ def main() -> None:
         print(f"Initialized fresh LoRA adapters because {adapter_path} does not exist")
     mark_only_lora_as_trainable(policy)
     policy = policy.to(device).train()
+    if args.gradient_checkpointing:
+        policy.config.use_cache = False
+        policy.gradient_checkpointing_enable()
 
-    reference = AutoModelForCausalLM.from_pretrained(args.model, trust_remote_code=True).to(device).eval()
+    reference = AutoModelForCausalLM.from_pretrained(
+        args.model,
+        trust_remote_code=True,
+        torch_dtype=resolve_torch_dtype(args.dtype),
+    ).to(device).eval()
+    reference.config.use_cache = False
     for parameter in reference.parameters():
         parameter.requires_grad = False
 

@@ -19,13 +19,14 @@ run_sft() {
     --model "$MODEL" \
     --data_file "$DATA_FILE" \
     --max_length "${SFT_MAX_LENGTH:-1024}" \
-    --batch_size "${SFT_BATCH_SIZE:-16}" \
-    --gradient_accumulation_steps "${SFT_GRAD_ACCUM:-1}" \
+    --batch_size "${SFT_BATCH_SIZE:-8}" \
+    --gradient_accumulation_steps "${SFT_GRAD_ACCUM:-2}" \
     --epochs "${SFT_EPOCHS:-2}" \
     --rank "${LORA_RANK:-32}" \
     --alpha "${LORA_ALPHA:-64}" \
     --lr "${SFT_LR:-2e-5}" \
-    --log_dir "${SFT_LOG_DIR:-runs/sft}"
+    --log_dir "${SFT_LOG_DIR:-runs/sft}" \
+    --dtype "${DTYPE:-bf16}"
 }
 
 run_dpo() {
@@ -35,14 +36,15 @@ run_dpo() {
     --output_dir "${DPO_OUTPUT_DIR:-outputs/dpo_lora}" \
     --data_file "$DATA_FILE" \
     --max_length "${DPO_MAX_LENGTH:-1024}" \
-    --batch_size "${DPO_BATCH_SIZE:-8}" \
-    --gradient_accumulation_steps "${DPO_GRAD_ACCUM:-1}" \
+    --batch_size "${DPO_BATCH_SIZE:-4}" \
+    --gradient_accumulation_steps "${DPO_GRAD_ACCUM:-2}" \
     --epochs "${DPO_EPOCHS:-2}" \
     --rank "${LORA_RANK:-32}" \
     --alpha "${LORA_ALPHA:-64}" \
     --lr "${DPO_LR:-1e-5}" \
     --beta "${DPO_BETA:-0.1}" \
-    --log_dir "${DPO_LOG_DIR:-runs/dpo}"
+    --log_dir "${DPO_LOG_DIR:-runs/dpo}" \
+    --dtype "${DTYPE:-bf16}"
 }
 
 case "$MODE" in

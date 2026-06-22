@@ -95,19 +95,20 @@ runs/dpo/
 tensorboard --logdir runs --host 0.0.0.0 --port 6006
 ```
 
-下面这组命令默认使用全量数据，不再抽样。`batch_size` 是实际进入显存的 micro batch，`gradient_accumulation_steps=1` 可以让 GPU 更忙；如果 `nvidia-smi` 显示显存仍有明显余量，优先继续增大 `batch_size`。
+下面这组命令默认使用全量数据，不再抽样。脚本会用 `bf16` 加载模型，并默认开启 gradient checkpointing。`batch_size` 是实际进入显存的 micro batch；如果 `nvidia-smi` 显示显存仍有明显余量，再逐步增大 `batch_size`。
 
 ```bash
 python -m src.train_sft \
   --model Qwen/Qwen2.5-0.5B-Instruct \
   --data_file data/math_step_dpo_train.parquet \
   --max_length 1024 \
-  --batch_size 16 \
-  --gradient_accumulation_steps 1 \
+  --batch_size 8 \
+  --gradient_accumulation_steps 2 \
   --epochs 2 \
   --rank 32 \
   --alpha 64 \
-  --lr 2e-5
+  --lr 2e-5 \
+  --dtype bf16
 ```
 
 如果 24GB 显存仍没有接近用满，可以继续加压：
@@ -116,21 +117,22 @@ python -m src.train_sft \
 python -m src.train_sft \
   --model Qwen/Qwen2.5-0.5B-Instruct \
   --data_file data/math_step_dpo_train.parquet \
-  --max_length 1536 \
-  --batch_size 24 \
+  --max_length 1024 \
+  --batch_size 12 \
   --gradient_accumulation_steps 1 \
   --epochs 2 \
   --rank 32 \
   --alpha 64 \
-  --lr 2e-5
+  --lr 2e-5 \
+  --dtype bf16
 ```
 
-如果出现 CUDA out of memory，先把 `batch_size` 降到 12；仍然 OOM 再把 `max_length` 降回 768。排查环境时才需要使用 `--samples 20 --batch_size 1` 这类 smoke test 配置。
+如果出现 CUDA out of memory，先把 `batch_size` 降到 4；仍然 OOM 再把 `max_length` 降回 768。排查环境时才需要使用 `--samples 20 --batch_size 1` 这类 smoke test 配置。
 
 脚本也支持用环境变量继续加压，例如：
 
 ```bash
-SFT_MAX_LENGTH=1536 SFT_BATCH_SIZE=24 scripts/run_4090_24g_training.sh sft
+SFT_BATCH_SIZE=12 SFT_GRAD_ACCUM=1 scripts/run_4090_24g_training.sh sft
 ```
 
 训练后会生成：
@@ -178,13 +180,14 @@ python -m src.train_dpo \
   --output_dir outputs/dpo_lora \
   --data_file data/math_step_dpo_train.parquet \
   --max_length 1024 \
-  --batch_size 8 \
-  --gradient_accumulation_steps 1 \
+  --batch_size 4 \
+  --gradient_accumulation_steps 2 \
   --epochs 2 \
   --rank 32 \
   --alpha 64 \
   --lr 1e-5 \
-  --beta 0.1
+  --beta 0.1 \
+  --dtype bf16
 ```
 
 如果显存仍有余量，可以继续加压到：
@@ -195,22 +198,23 @@ python -m src.train_dpo \
   --init_adapter_dir outputs/sft_lora \
   --output_dir outputs/dpo_lora \
   --data_file data/math_step_dpo_train.parquet \
-  --max_length 1536 \
-  --batch_size 12 \
+  --max_length 1024 \
+  --batch_size 6 \
   --gradient_accumulation_steps 1 \
   --epochs 2 \
   --rank 32 \
   --alpha 64 \
   --lr 1e-5 \
-  --beta 0.1
+  --beta 0.1 \
+  --dtype bf16
 ```
 
-如果出现 CUDA out of memory，先把 DPO 的 `batch_size` 降到 6；仍然 OOM 再把 `max_length` 降回 768。
+如果出现 CUDA out of memory，先把 DPO 的 `batch_size` 降到 2；仍然 OOM 再把 `max_length` 降回 768。
 
 脚本加压 DPO 的示例：
 
 ```bash
-DPO_MAX_LENGTH=1536 DPO_BATCH_SIZE=12 scripts/run_4090_24g_training.sh dpo
+DPO_BATCH_SIZE=6 DPO_GRAD_ACCUM=1 scripts/run_4090_24g_training.sh dpo
 ```
 
 训练后会生成：

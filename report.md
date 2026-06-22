@@ -119,12 +119,13 @@ scale = alpha / rank
   --model Qwen/Qwen2.5-0.5B-Instruct \
   --data_file data/math_step_dpo_train.parquet \
   --max_length 1024 \
-  --batch_size 16 \
-  --gradient_accumulation_steps 1 \
+  --batch_size 8 \
+  --gradient_accumulation_steps 2 \
   --epochs 2 \
   --rank 32 \
   --alpha 64 \
-  --lr 2e-5
+  --lr 2e-5 \
+  --dtype bf16
 ```
 
 ## 6. DPO 实现与训练
@@ -183,13 +184,14 @@ DPO 训练中：
   --output_dir outputs/dpo_lora \
   --data_file data/math_step_dpo_train.parquet \
   --max_length 1024 \
-  --batch_size 8 \
-  --gradient_accumulation_steps 1 \
+  --batch_size 4 \
+  --gradient_accumulation_steps 2 \
   --epochs 2 \
   --rank 32 \
   --alpha 64 \
   --lr 1e-5 \
-  --beta 0.1
+  --beta 0.1 \
+  --dtype bf16
 ```
 
 ### DPO Loss 曲线
@@ -379,7 +381,7 @@ DPO 不一定只看最终输出质量，也可以通过偏好对交换验证 los
 - SFT 300 条样本约 40 秒。
 - DPO 100 对样本约 29 秒。
 
-本实验中 loss 曲线虽然波动较大，但这是调试阶段小 batch、小样本、数学推理任务下的正常现象。若使用 4090D 24GB 正式配置，可通过全量数据、更大 micro batch 和更长序列长度提高 GPU 利用率，并降低单步 loss 的随机波动。实验重点在于：
+本实验中 loss 曲线虽然波动较大，但这是调试阶段小 batch、小样本、数学推理任务下的正常现象。若使用 4090D 24GB 正式配置，可通过全量数据、bf16、gradient checkpointing 和更大的有效 batch 提高 GPU 利用率，并降低单步 loss 的随机波动。实验重点在于：
 
 - 手写 LoRA 公式正确。
 - base 参数冻结，adapter 参数可训练。
